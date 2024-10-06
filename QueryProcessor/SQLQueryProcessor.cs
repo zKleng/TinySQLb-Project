@@ -3,6 +3,7 @@ using QueryProcessor.Exceptions;
 using QueryProcessor.Operations;
 using StoreDataManager;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace QueryProcessor
 {
@@ -57,12 +58,29 @@ namespace QueryProcessor
                     return OperationStatus.Error;
                 }
 
-                // Extraer el nombre de la tabla de la sentencia SELECT
-                var tableName = ExtractTableNameFromSelect(sentence);
+                // Extraer los detalles de la sentencia SELECT
+                var selectDetails = ExtractSelectDetails(sentence);
 
-                // Llamar a la clase Select para realizar la operación
-                var selectOperation = new Select();
-                return selectOperation.Execute(currentDatabase, tableName);
+                // Crear la operación de Select con los parámetros extraídos
+                var selectOperation = new Select(currentDatabase, selectDetails);
+
+                // Ejecutar la operación
+                return selectOperation.Execute().Status;
+            }
+            else if (sentence.StartsWith("UPDATE"))
+            {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
+                // Extraer detalles de la sentencia UPDATE
+                var updateDetails = ExtractUpdateDetails(sentence);
+                var updateOperation = new Update(currentDatabase, updateDetails.TableName, updateDetails.ColumnUpdates, updateDetails.WhereCondition);
+
+                // Ejecutar la operación
+                return updateOperation.Execute().Status;
             }
             else if (sentence.StartsWith("CREATE DATABASE"))
             {
@@ -103,6 +121,12 @@ namespace QueryProcessor
             }
             else if (sentence.StartsWith("CREATE INDEX"))
             {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
                 // Extraer la información del índice
                 var indexName = ExtractIndexName(sentence);
                 var tableName = ExtractTableNameFromIndex(sentence);
@@ -121,6 +145,85 @@ namespace QueryProcessor
             }
         }
 
+        // Método para extraer los detalles de la sentencia SELECT
+        private static SelectDetails ExtractSelectDetails(string sentence)
+        {
+            var selectDetails = new SelectDetails();
+
+            // Extraer las columnas a seleccionar
+            int fromIndex = sentence.IndexOf("FROM");
+            var columnsPart = sentence.Substring(7, fromIndex - 7).Trim();
+            selectDetails.Columns = columnsPart == "*" ? new List<string>() : columnsPart.Split(',').Select(c => c.Trim()).ToList();
+
+            // Extraer el nombre de la tabla
+            int whereIndex = sentence.IndexOf("WHERE");
+            int orderByIndex = sentence.IndexOf("ORDER BY");
+            if (whereIndex != -1)
+            {
+                selectDetails.TableName = sentence.Substring(fromIndex + 4, whereIndex - fromIndex - 4).Trim();
+            }
+            else if (orderByIndex != -1)
+            {
+                selectDetails.TableName = sentence.Substring(fromIndex + 4, orderByIndex - fromIndex - 4).Trim();
+            }
+            else
+            {
+                selectDetails.TableName = sentence.Substring(fromIndex + 4).Trim();
+            }
+
+            // Extraer la condición WHERE si existe
+            if (whereIndex != -1)
+            {
+                int startIndex = whereIndex + 5;
+                int endIndex = orderByIndex != -1 ? orderByIndex : sentence.Length;
+                selectDetails.WhereCondition = sentence.Substring(startIndex, endIndex - startIndex).Trim();
+            }
+
+            // Extraer el ORDER BY si existe
+            if (orderByIndex != -1)
+            {
+                int startIndex = orderByIndex + 8;
+                var orderByPart = sentence.Substring(startIndex).Trim();
+                var orderParts = orderByPart.Split(' ');
+                selectDetails.OrderByColumn = orderParts[0];
+                selectDetails.OrderByDirection = orderParts.Length > 1 ? orderParts[1].ToUpper() : "ASC";
+            }
+
+            return selectDetails;
+        }
+        private static UpdateDetails ExtractUpdateDetails(string sentence)
+        {
+            var updateDetails = new UpdateDetails();
+
+            int setIndex = sentence.IndexOf("SET");
+            int whereIndex = sentence.IndexOf("WHERE");
+
+            // Extraer el nombre de la tabla
+            updateDetails.TableName = sentence.Substring(6, setIndex - 6).Trim();
+
+            // Extraer las columnas y valores a actualizar
+            var setPart = whereIndex == -1 ? sentence.Substring(setIndex + 3).Trim() : sentence.Substring(setIndex + 3, whereIndex - setIndex - 3).Trim();
+            var setPairs = setPart.Split(',');
+
+            foreach (var pair in setPairs)
+            {
+                var parts = pair.Split('=');
+                if (parts.Length == 2)
+                {
+                    var columnName = parts[0].Trim();
+                    var newValue = parts[1].Trim().Trim('\'');
+                    updateDetails.ColumnUpdates[columnName] = newValue;
+                }
+            }
+
+            // Extraer la condición WHERE si existe
+            if (whereIndex != -1)
+            {
+                updateDetails.WhereCondition = sentence.Substring(whereIndex + 5).Trim();
+            }
+
+            return updateDetails;
+        }
         // Método para extraer el nombre de la base de datos de la sentencia CREATE DATABASE o SET DATABASE
         private static string ExtractDatabaseName(string sentence)
         {
@@ -151,12 +254,6 @@ namespace QueryProcessor
             return sentence.Substring(startIndex, endIndex - startIndex).Trim();
         }
 
-        // Función para extraer el nombre de la tabla de una sentencia SELECT
-        private static string ExtractTableNameFromSelect(string sentence)
-        {
-            int startIndex = sentence.IndexOf("FROM") + "FROM".Length;
-            return sentence.Substring(startIndex).Trim();
-        }
         // Método para extraer el nombre del índice
         private static string ExtractIndexName(string sentence)
         {
@@ -295,4 +392,5 @@ namespace QueryProcessor
         }
     }
 }
+
 

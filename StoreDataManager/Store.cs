@@ -270,6 +270,9 @@ namespace StoreDataManager
             {
                 var columns = GetTableDefinition(databaseName, tableName);
 
+                // Salta la parte de las columnas
+                stream.Seek(columns.Sum(c => c.Name.Length + c.Type.Length + sizeof(int)), SeekOrigin.Begin);
+
                 // Leer todas las filas del archivo
                 while (stream.Position < stream.Length)
                 {
@@ -302,20 +305,21 @@ namespace StoreDataManager
                                 Console.WriteLine($"Error al leer VARCHAR para la columna: {column.Name}");
                                 return new OperationResult(OperationStatus.Error, $"Unexpected end of file while reading VARCHAR column {column.Name}.");
                             }
+
                             char[] charArray = reader.ReadChars(column.Size);
                             string columnValue = new string(charArray).Trim();
                             row.Add(columnValue);
                             Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {columnValue}");
                         }
-
                     }
                     rows.Add(string.Join(", ", row));
                 }
-
             }
 
-            return new OperationResult(OperationStatus.Success, string.Join("\n", rows));  // Devolver todas las filas unidas por un salto de línea
+            return new OperationResult(OperationStatus.Success, string.Join("\n", rows));
         }
+
+
         public bool IndexExists(string databaseName, string tableName, string columnName)
         {
             // Verifica en el catálogo del sistema si ya existe un índice en la columna especificada
