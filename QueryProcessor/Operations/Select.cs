@@ -1,19 +1,17 @@
 ﻿using Entities;
 using StoreDataManager;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace QueryProcessor.Operations
 {
     internal class Select
     {
-        public OperationStatus Execute()
+        public OperationStatus Execute(string databaseName, string tableName)
         {
-            // This is only doing the query but not returning results.
-            return Store.GetInstance().Select();
+            // Llamar al método Select en Store con los parámetros correctos
+            return Store.GetInstance().Select(databaseName, tableName).Status;
         }
     }
 }
+
+

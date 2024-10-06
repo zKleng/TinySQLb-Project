@@ -5,7 +5,8 @@ param (
     [int]$Port
 )
 
-$ipEndPoint = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse("127.0.0.1"), 11000)
+$ipEndPoint = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($IP), $Port)
+
 
 function Send-Message {
     param (
@@ -65,11 +66,17 @@ function Send-SQLCommand {
     Write-Host -ForegroundColor Green "Response received: $response"
     
     $responseObject = ConvertFrom-Json -InputObject $response
-    Write-Output $responseObject
+    if ($responseObject.Status -eq 0) {
+        if ($responseObject.ResponseBody -ne "") {
+            Write-Output $responseObject.ResponseBody
+        } else {
+            Write-Host -ForegroundColor Yellow "Warning: Response body is empty."
+        }
+    } else {
+        Write-Host -ForegroundColor Red "Error: $responseObject.ResponseBody"
+    }
+
     $client.Shutdown([System.Net.Sockets.SocketShutdown]::Both)
     $client.Close()
 }
 
-# Example commands (optional)
-Send-SQLCommand -command "CREATE TABLE ESTUDIANTE"
-Send-SQLCommand -command "SELECT * FROM ESTUDIANTE"

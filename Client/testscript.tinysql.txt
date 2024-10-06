@@ -1,0 +1,16 @@
+-- Crear la base de datos TESTDB
+CREATE DATABASE TESTDB;
+
+-- Crear la tabla PERSONAS en la base de datos TESTDB
+CREATE TABLE PERSONAS (
+    ID INTEGER,
+    Nombre VARCHAR(30),
+    Apellido VARCHAR(50)
+);
+
+-- Insertar algunos registros en la tabla PERSONAS
+INSERT INTO PERSONAS VALUES (1, "Juan", "Perez");
+INSERT INTO PERSONAS VALUES (2, "Ana", "Lopez");
+
+-- Seleccionar todos los registros de la tabla PERSONAS
+SELECT * FROM PERSONAS;

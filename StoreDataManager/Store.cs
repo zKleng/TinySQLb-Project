@@ -1,4 +1,5 @@
 ﻿using Entities;
+using System.Data.Common;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 
@@ -40,44 +41,252 @@ namespace StoreDataManager
             Directory.CreateDirectory(SystemCatalogPath);
         }
 
-        public OperationStatus CreateTable()
+        public OperationResult CreateTable(string databaseName, string tableName, List<Column> columns)
         {
-            // Creates a default DB called TESTDB
-            Directory.CreateDirectory($@"{DataPath}\TESTDB");
-
-            // Creates a default Table called ESTUDIANTES
-            var tablePath = $@"{DataPath}\TESTDB\ESTUDIANTES.Table";
-
-            using (FileStream stream = File.Open(tablePath, FileMode.OpenOrCreate))
-            using (BinaryWriter writer = new (stream))
+            var databasePath = $@"{DataPath}\{databaseName}";
+            if (!Directory.Exists(databasePath))
             {
-                // Create an object with a hardcoded.
-                // First field is an int, second field is a string of size 30,
-                // third is a string of 50
-                int id = 1;
-                string nombre = "Isaac".PadRight(30); // Pad to make the size of the string fixed
-                string apellido = "Ramirez".PadRight(50);
-
-                writer.Write(id);
-                writer.Write(nombre);
-                writer.Write(apellido);
+                return new OperationResult(OperationStatus.Error, "Database does not exist.");
             }
-            return OperationStatus.Success;
+
+            Console.WriteLine($"Creando tabla {tableName} en la base de datos {databaseName} con {columns.Count} columnas.");
+
+            // Verifica si hay columnas definidas antes de continuar
+            if (columns.Count == 0)
+            {
+                return new OperationResult(OperationStatus.Error, "No se han definido columnas para la tabla.");
+            }
+
+            // Crea la tabla: Solo crea un archivo vacío como indicador de la existencia de la tabla
+            var tablePath = $@"{databasePath}\{tableName}.table";
+            using (FileStream stream = File.Open(tablePath, FileMode.Create))
+            {
+                Console.WriteLine($"Archivo de la tabla {tableName} creado.");
+            }
+
+            // Actualiza el catálogo del sistema con la nueva tabla y sus columnas
+            UpdateSystemCatalog(databaseName, tableName, columns);
+
+            // Aquí agregas el código para verificar las columnas
+            var createdColumns = GetTableDefinition(databaseName, tableName);
+            Console.WriteLine($"Número de columnas en la tabla creada: {createdColumns.Count}");
+            foreach (var column in createdColumns)
+            {
+                Console.WriteLine($"Columna: {column.Name}, Tipo: {column.Type}, Tamaño: {column.Size}");
+            }
+
+            return new OperationResult(OperationStatus.Success, "Table created successfully.");
         }
 
-        public OperationStatus Select()
+
+
+
+
+
+        private void UpdateSystemCatalog(string databaseName, string tableName, List<Column> columns)
         {
-            // Creates a default Table called ESTUDIANTES
-            var tablePath = $@"{DataPath}\TESTDB\ESTUDIANTES.Table";
-            using (FileStream stream = File.Open(tablePath, FileMode.OpenOrCreate))
-            using (BinaryReader reader = new (stream))
+            var catalogPath = $@"{SystemCatalogPath}\SystemTables.table";
+            using (FileStream stream = File.Open(catalogPath, FileMode.Append))
+            using (BinaryWriter writer = new BinaryWriter(stream))
             {
-                // Print the values as a I know exactly the types, but this needs to be done right
-                Console.WriteLine(reader.ReadInt32());
-                Console.WriteLine(reader.ReadString());
-                Console.WriteLine(reader.ReadString());
-                return OperationStatus.Success;
+                writer.Write(databaseName);
+                writer.Write(tableName);
+                foreach (var column in columns)
+                {
+                    Console.WriteLine($"Escribiendo columna: {column.Name}, Tipo: {column.Type}, Tamaño: {column.Size}");
+                    writer.Write(column.Name);
+                    writer.Write(column.Type);
+                    writer.Write(column.Size);
+                }
             }
         }
+
+
+        private List<Column> GetTableDefinition(string databaseName, string tableName)
+        {
+            var catalogPath = $@"{SystemCatalogPath}\SystemTables.table";
+            using (FileStream stream = File.Open(catalogPath, FileMode.Open))
+            using (BinaryReader reader = new BinaryReader(stream))
+            {
+                List<Column> columns = new List<Column>();
+                while (stream.Position < stream.Length)
+                {
+                    try
+                    {
+                        string dbName = reader.ReadString();
+                        string tblName = reader.ReadString();
+
+                        if (dbName == databaseName && tblName == tableName)
+                        {
+                            Console.WriteLine("Leyendo columnas para la tabla " + tableName);
+                            while (stream.Position < stream.Length)
+                            {
+                                string columnName = reader.ReadString();
+                                string columnType = reader.ReadString();
+                                int columnSize = reader.ReadInt32();
+
+                                columns.Add(new Column(columnName, columnType, columnSize));
+                                Console.WriteLine($"Columna leída: {columnName}, Tipo: {columnType}, Tamaño: {columnSize}");
+                            }
+                            break;  // Detener el bucle una vez que se han leído las columnas de la tabla
+                        }
+
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        Console.WriteLine("Error: Fin del archivo mientras se leían las columnas.");
+                        break;
+                    }
+                    catch (IOException e)
+                    {
+                        Console.WriteLine($"Error de lectura de archivo: {e.Message}");
+                        break;
+                    }
+                }
+
+                if (columns.Count == 0)
+                {
+                    Console.WriteLine("No se encontraron columnas para la tabla especificada.");
+                }
+                return columns;
+            }
+        }
+
+
+
+        public OperationResult Insert(string databaseName, string tableName, List<object> values)
+        {
+            var tablePath = $@"{DataPath}\{databaseName}\{tableName}.table";
+            Console.WriteLine($"Inserting into table: {tableName} in database: {databaseName}");
+
+            if (!File.Exists(tablePath))
+            {
+                Console.WriteLine("Table does not exist.");
+                return new OperationResult(OperationStatus.Error, "Table does not exist.");
+            }
+
+            // Valida los valores contra la definición de la tabla
+            var columns = GetTableDefinition(databaseName, tableName);
+            Console.WriteLine($"Number of columns in the table: {columns.Count}");
+            foreach (var column in columns)
+            {
+                Console.WriteLine($"Column: {column.Name}, Type: {column.Type}, Size: {column.Size}");
+            }
+
+            if (columns.Count != values.Count)
+            {
+                Console.WriteLine("Column count mismatch.");
+                return new OperationResult(OperationStatus.Warning, "Column count mismatch.");
+            }
+
+            using (FileStream stream = File.Open(tablePath, FileMode.Append))
+            using (BinaryWriter writer = new BinaryWriter(stream))
+            {
+                for (int i = 0; i < columns.Count; i++)
+                {
+                    var column = columns[i];
+                    var value = values[i];
+                    Console.WriteLine($"Processing column: {column.Name}, Type: {column.Type}, Value: {value}");
+
+                    if (column.Type == "INTEGER" && value is int)
+                    {
+                        writer.Write((int)value);
+                        Console.WriteLine($"Wrote integer value: {value}");
+                    }
+                    else if (column.Type == "VARCHAR" && value is string)
+                    {
+                        string stringValue = ((string)value);
+
+                        // Truncar la cadena si excede el tamaño de la columna
+                        if (stringValue.Length > column.Size)
+                        {
+                            stringValue = stringValue.Substring(0, column.Size);
+                            Console.WriteLine($"String value truncated to: {stringValue}");
+                        }
+
+                        // Ajustar la cadena al tamaño de la columna con espacios
+                        stringValue = stringValue.PadRight(column.Size);
+                        writer.Write(stringValue.ToCharArray());
+                        Console.WriteLine($"Wrote string value: {stringValue}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Invalid value for column {column.Name}");
+                        return new OperationResult(OperationStatus.Error, $"Invalid value for column {column.Name}");
+                    }
+                }
+            }
+
+            return new OperationResult(OperationStatus.Success, "Row inserted successfully.");
+        }
+
+
+
+
+
+
+        public OperationResult Select(string databaseName, string tableName)
+        {
+            var tablePath = $@"{DataPath}\{databaseName}\{tableName}.table";
+
+            if (!File.Exists(tablePath))
+            {
+                return new OperationResult(OperationStatus.Error, "Table does not exist.");
+            }
+
+            List<string> rows = new List<string>();
+
+            using (FileStream stream = File.Open(tablePath, FileMode.Open))
+            using (BinaryReader reader = new BinaryReader(stream))
+            {
+                var columns = GetTableDefinition(databaseName, tableName);
+
+                // Leer todas las filas del archivo
+                while (stream.Position < stream.Length)
+                {
+                    List<string> row = new List<string>();
+
+                    foreach (var column in columns)
+                    {
+                        if (stream.Position >= stream.Length)
+                        {
+                            Console.WriteLine("Fin inesperado del archivo mientras se leían las columnas.");
+                            return new OperationResult(OperationStatus.Error, "Unexpected end of file while reading the table.");
+                        }
+
+                        if (column.Type == "INTEGER")
+                        {
+                            if (stream.Length - stream.Position < sizeof(int))
+                            {
+                                Console.WriteLine($"Error al leer INTEGER para la columna: {column.Name}");
+                                return new OperationResult(OperationStatus.Error, "Unexpected end of file while reading an INTEGER.");
+                            }
+
+                            int intValue = reader.ReadInt32();
+                            row.Add(intValue.ToString());
+                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {intValue}");
+                        }
+                        else if (column.Type == "VARCHAR")
+                        {
+                            if (stream.Length - stream.Position < column.Size)
+                            {
+                                Console.WriteLine($"Error al leer VARCHAR para la columna: {column.Name}");
+                                return new OperationResult(OperationStatus.Error, $"Unexpected end of file while reading VARCHAR column {column.Name}.");
+                            }
+                            char[] charArray = reader.ReadChars(column.Size);
+                            string columnValue = new string(charArray).Trim();
+                            row.Add(columnValue);
+                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {columnValue}");
+                        }
+
+                    }
+                    rows.Add(string.Join(", ", row));
+                }
+
+            }
+
+            return new OperationResult(OperationStatus.Success, string.Join("\n", rows));  // Devolver todas las filas unidas por un salto de línea
+        }
+
     }
 }
