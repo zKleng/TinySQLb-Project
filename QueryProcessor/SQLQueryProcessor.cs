@@ -8,49 +8,95 @@ namespace QueryProcessor
 {
     public class SQLQueryProcessor
     {
+        // Variable para almacenar el contexto actual de la base de datos
+        private static string currentDatabase = "";
+
         public static OperationStatus Execute(string sentence)
         {
             if (sentence.StartsWith("CREATE TABLE"))
             {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
                 // Extraer el nombre de la tabla y las columnas
                 var tableName = ExtractTableNameFromCreate(sentence);
                 var columns = ExtractColumns(sentence);
 
-                // Define un nombre de base de datos por defecto, o extráelo de algún otro lugar
-                string databaseName = "TESTDB";
-
                 // Crear la operación de CreateTable con los parámetros extraídos
-                var createTableOperation = new CreateTable(databaseName, tableName, columns);
+                var createTableOperation = new CreateTable(currentDatabase, tableName, columns);
 
                 // Ejecutar la operación
                 return createTableOperation.Execute().Status;
             }
             else if (sentence.StartsWith("INSERT INTO"))
             {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
                 // Extraer el nombre de la tabla y los valores
                 var tableName = ExtractTableNameFromInsert(sentence);
                 var values = ExtractValues(sentence);
 
                 // Llamar a la clase Insert para realizar la operación
-                var insertOperation = new Insert("TESTDB", tableName, values);
+                var insertOperation = new Insert(currentDatabase, tableName, values);
 
                 // Ejecutar la operación
                 return insertOperation.Execute().Status;
             }
             else if (sentence.StartsWith("SELECT"))
             {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
                 // Extraer el nombre de la tabla de la sentencia SELECT
                 var tableName = ExtractTableNameFromSelect(sentence);
-                string databaseName = "TESTDB"; // Nombre de base de datos por defecto
 
                 // Llamar a la clase Select para realizar la operación
                 var selectOperation = new Select();
-                return selectOperation.Execute(databaseName, tableName);
+                return selectOperation.Execute(currentDatabase, tableName);
+            }
+            else if (sentence.StartsWith("CREATE DATABASE"))
+            {
+                // Extraer el nombre de la base de datos
+                var databaseName = ExtractDatabaseName(sentence);
+
+                // Llamar a la clase Store para crear la base de datos
+                return Store.GetInstance().CreateDatabase(databaseName).Status;
+            }
+            else if (sentence.StartsWith("SET DATABASE"))
+            {
+                // Extraer el nombre de la base de datos
+                var databaseName = ExtractDatabaseName(sentence);
+
+                // Llamar a la clase Store para validar la existencia de la base de datos
+                var result = Store.GetInstance().SetDatabase(databaseName);
+                if (result.Status == OperationStatus.Success)
+                {
+                    currentDatabase = databaseName;
+                    Console.WriteLine($"Database context set to: {databaseName}");
+                }
+                return result.Status;
             }
             else
             {
                 throw new UnknownSQLSentenceException();
             }
+        }
+
+        // Método para extraer el nombre de la base de datos de la sentencia CREATE DATABASE o SET DATABASE
+        private static string ExtractDatabaseName(string sentence)
+        {
+            int startIndex = sentence.IndexOf("DATABASE") + "DATABASE".Length;
+            return sentence.Substring(startIndex).Trim();
         }
 
         // Función para extraer el nombre de la tabla de una sentencia CREATE TABLE
@@ -76,7 +122,6 @@ namespace QueryProcessor
             return sentence.Substring(startIndex).Trim();
         }
 
-        // Función para extraer la definición de las columnas en una sentencia CREATE TABLE
         // Función para extraer la definición de las columnas en una sentencia CREATE TABLE
         private static List<Column> ExtractColumns(string sentence)
         {
@@ -145,7 +190,6 @@ namespace QueryProcessor
             return columns;
         }
 
-
         // Función para extraer los valores de una sentencia INSERT INTO
         private static List<object> ExtractValues(string sentence)
         {
@@ -183,11 +227,5 @@ namespace QueryProcessor
 
             return values;
         }
-
-
-
-
     }
 }
-
-

@@ -40,6 +40,44 @@ namespace StoreDataManager
             // exist when initializing
             Directory.CreateDirectory(SystemCatalogPath);
         }
+        public OperationResult CreateDatabase(string databaseName)
+        {
+            var databasePath = $@"{DataPath}\{databaseName}";
+
+            if (Directory.Exists(databasePath))
+            {
+                Console.WriteLine($"Error: La base de datos {databaseName} ya existe.");
+                return new OperationResult(OperationStatus.Error, "Database already exists.");
+            }
+
+            try
+            {
+                // Crear el directorio para la base de datos
+                Directory.CreateDirectory(databasePath);
+                Console.WriteLine($"Base de datos {databaseName} creada exitosamente en {databasePath}.");
+                return new OperationResult(OperationStatus.Success, "Database created successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al crear la base de datos {databaseName}: {ex.Message}");
+                return new OperationResult(OperationStatus.Error, $"Failed to create database: {ex.Message}");
+            }
+        }
+        public OperationResult SetDatabase(string databaseName)
+        {
+            var databasePath = $@"{DataPath}\{databaseName}";
+
+            if (Directory.Exists(databasePath))
+            {
+                Console.WriteLine($"Base de datos {databaseName} establecida exitosamente.");
+                return new OperationResult(OperationStatus.Success, "Database exists.");
+            }
+            else
+            {
+                Console.WriteLine($"Error: La base de datos {databaseName} no existe.");
+                return new OperationResult(OperationStatus.Error, "Database does not exist.");
+            }
+        }
 
         public OperationResult CreateTable(string databaseName, string tableName, List<Column> columns)
         {
@@ -78,11 +116,6 @@ namespace StoreDataManager
             return new OperationResult(OperationStatus.Success, "Table created successfully.");
         }
 
-
-
-
-
-
         private void UpdateSystemCatalog(string databaseName, string tableName, List<Column> columns)
         {
             var catalogPath = $@"{SystemCatalogPath}\SystemTables.table";
@@ -100,7 +133,6 @@ namespace StoreDataManager
                 }
             }
         }
-
 
         private List<Column> GetTableDefinition(string databaseName, string tableName)
         {
@@ -151,9 +183,6 @@ namespace StoreDataManager
                 return columns;
             }
         }
-
-
-
         public OperationResult Insert(string databaseName, string tableName, List<object> values)
         {
             var tablePath = $@"{DataPath}\{databaseName}\{tableName}.table";
@@ -219,11 +248,6 @@ namespace StoreDataManager
 
             return new OperationResult(OperationStatus.Success, "Row inserted successfully.");
         }
-
-
-
-
-
 
         public OperationResult Select(string databaseName, string tableName)
         {

@@ -6,7 +6,7 @@ param (
 )
 
 $ipEndPoint = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($IP), $Port)
-
+$CurrentDatabase = ""
 
 function Send-Message {
     param (
@@ -51,6 +51,12 @@ function Send-SQLCommand {
     param (
         [string]$command
     )
+    
+    # Si la sentencia no es SET DATABASE y tenemos una base de datos en contexto, prepende la base de datos actual
+    if ($command -notmatch "^SET DATABASE" -and $CurrentDatabase -ne "") {
+        $command = "USE DATABASE $CurrentDatabase; $command"
+    }
+
     $client = New-Object System.Net.Sockets.Socket($ipEndPoint.AddressFamily, [System.Net.Sockets.SocketType]::Stream, [System.Net.Sockets.ProtocolType]::Tcp)
     $client.Connect($ipEndPoint)
     $requestObject = [PSCustomObject]@{
@@ -72,6 +78,13 @@ function Send-SQLCommand {
         } else {
             Write-Host -ForegroundColor Yellow "Warning: Response body is empty."
         }
+
+        # Si la sentencia fue SET DATABASE y fue exitosa, actualizar la base de datos en contexto
+        if ($command -match "^SET DATABASE") {
+            $CurrentDatabase = $command -replace "SET DATABASE", "" -replace ";", "" -replace "USE DATABASE", "" -replace "\s+", ""
+            Write-Host -ForegroundColor Cyan "Contexto de base de datos establecido en: $CurrentDatabase"
+        }
+
     } else {
         Write-Host -ForegroundColor Red "Error: $responseObject.ResponseBody"
     }
@@ -79,4 +92,5 @@ function Send-SQLCommand {
     $client.Shutdown([System.Net.Sockets.SocketShutdown]::Both)
     $client.Close()
 }
+
 
