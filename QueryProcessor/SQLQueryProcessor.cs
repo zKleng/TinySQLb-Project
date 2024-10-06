@@ -86,6 +86,35 @@ namespace QueryProcessor
                 }
                 return result.Status;
             }
+            else if (sentence.StartsWith("DROP TABLE"))
+            {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
+                // Extraer el nombre de la tabla de la sentencia DROP TABLE
+                var tableName = ExtractTableNameFromDrop(sentence);
+
+                // Llamar a la clase Store para eliminar la tabla
+                var dropTableOperation = new DropTable(currentDatabase, tableName);
+                return dropTableOperation.Execute().Status;
+            }
+            else if (sentence.StartsWith("CREATE INDEX"))
+            {
+                // Extraer la información del índice
+                var indexName = ExtractIndexName(sentence);
+                var tableName = ExtractTableNameFromIndex(sentence);
+                var columnName = ExtractColumnNameFromIndex(sentence);
+                var indexType = ExtractIndexType(sentence);
+
+                // Llamar a la clase CreateIndex para realizar la operación
+                var createIndexOperation = new CreateIndex(currentDatabase, tableName, columnName, indexName, indexType);
+
+                // Ejecutar la operación
+                return createIndexOperation.Execute().Status;
+            }
             else
             {
                 throw new UnknownSQLSentenceException();
@@ -107,6 +136,13 @@ namespace QueryProcessor
             return sentence.Substring(startIndex, endIndex - startIndex).Trim();
         }
 
+        // Función para extraer el nombre de la tabla de una sentencia DROP TABLE
+        private static string ExtractTableNameFromDrop(string sentence)
+        {
+            int startIndex = sentence.IndexOf("DROP TABLE") + "DROP TABLE".Length;
+            return sentence.Substring(startIndex).Trim();
+        }
+
         // Función para extraer el nombre de la tabla de una sentencia INSERT INTO
         private static string ExtractTableNameFromInsert(string sentence)
         {
@@ -119,6 +155,36 @@ namespace QueryProcessor
         private static string ExtractTableNameFromSelect(string sentence)
         {
             int startIndex = sentence.IndexOf("FROM") + "FROM".Length;
+            return sentence.Substring(startIndex).Trim();
+        }
+        // Método para extraer el nombre del índice
+        private static string ExtractIndexName(string sentence)
+        {
+            int startIndex = sentence.IndexOf("CREATE INDEX") + "CREATE INDEX".Length;
+            int endIndex = sentence.IndexOf("ON");
+            return sentence.Substring(startIndex, endIndex - startIndex).Trim();
+        }
+
+        // Método para extraer el nombre de la tabla de una sentencia CREATE INDEX
+        private static string ExtractTableNameFromIndex(string sentence)
+        {
+            int startIndex = sentence.IndexOf("ON") + "ON".Length;
+            int endIndex = sentence.IndexOf("(");
+            return sentence.Substring(startIndex, endIndex - startIndex).Trim();
+        }
+
+        // Método para extraer el nombre de la columna de una sentencia CREATE INDEX
+        private static string ExtractColumnNameFromIndex(string sentence)
+        {
+            int startIndex = sentence.IndexOf("(") + 1;
+            int endIndex = sentence.IndexOf(")");
+            return sentence.Substring(startIndex, endIndex - startIndex).Trim();
+        }
+
+        // Método para extraer el tipo de índice
+        private static string ExtractIndexType(string sentence)
+        {
+            int startIndex = sentence.IndexOf("OF TYPE") + "OF TYPE".Length;
             return sentence.Substring(startIndex).Trim();
         }
 
@@ -229,3 +295,4 @@ namespace QueryProcessor
         }
     }
 }
+

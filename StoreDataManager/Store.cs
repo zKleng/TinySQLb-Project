@@ -28,6 +28,11 @@ namespace StoreDataManager
         private const string SystemDatabasesFile = $@"{SystemCatalogPath}\SystemDatabases.table";
         private const string SystemTablesFile = $@"{SystemCatalogPath}\SystemTables.table";
 
+        public string GetDataPath()
+        {
+            return DataPath;
+        }
+
         public Store()
         {
             this.InitializeSystemCatalog();
@@ -134,7 +139,7 @@ namespace StoreDataManager
             }
         }
 
-        private List<Column> GetTableDefinition(string databaseName, string tableName)
+        public List<Column> GetTableDefinition(string databaseName, string tableName)
         {
             var catalogPath = $@"{SystemCatalogPath}\SystemTables.table";
             using (FileStream stream = File.Open(catalogPath, FileMode.Open))
@@ -311,6 +316,35 @@ namespace StoreDataManager
 
             return new OperationResult(OperationStatus.Success, string.Join("\n", rows));  // Devolver todas las filas unidas por un salto de línea
         }
+        public bool IndexExists(string databaseName, string tableName, string columnName)
+        {
+            // Verifica en el catálogo del sistema si ya existe un índice en la columna especificada
+            // Aquí puedes implementar la lógica para leer del archivo de índices y verificar si ya existe
+            return false; // Suponiendo que no existe por defecto
+        }
+
+        public bool HasDuplicateValues(string databaseName, string tableName, string columnName)
+        {
+            // Verificar si hay valores duplicados en la columna especificada de la tabla
+            // Aquí puedes leer la tabla y buscar duplicados
+            return false; // Suponiendo que no hay duplicados por defecto
+        }
+
+        public void UpdateSystemCatalogWithIndex(string databaseName, string tableName, string columnName, string indexName, string indexType)
+        {
+            var catalogPath = $@"{SystemCatalogPath}\SystemIndexes.table";
+            using (FileStream stream = File.Open(catalogPath, FileMode.Append))
+            using (BinaryWriter writer = new BinaryWriter(stream))
+            {
+                writer.Write(databaseName);
+                writer.Write(tableName);
+                writer.Write(columnName);
+                writer.Write(indexName);
+                writer.Write(indexType);
+                Console.WriteLine($"Índice {indexName} creado en la columna {columnName} de la tabla {tableName}.");
+            }
+        }
+
 
     }
 }
