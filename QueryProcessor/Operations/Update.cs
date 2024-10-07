@@ -35,7 +35,7 @@ namespace QueryProcessor.Operations
             bool rowsUpdated = false;
 
             // Utilizar MemoryStream para manejar el archivo temporalmente
-            using (FileStream stream = File.Open(tablePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            using (FileStream stream = File.Open(tablePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             using (BinaryReader reader = new BinaryReader(stream))
             using (MemoryStream tempStream = new MemoryStream())
             using (BinaryWriter writer = new BinaryWriter(tempStream))
@@ -59,6 +59,13 @@ namespace QueryProcessor.Operations
                             string columnValue = new string(charArray).Trim();
                             row[column.Name] = columnValue;
                         }
+                        else if (column.Type == "DATETIME")
+                        {
+                            long binaryValue = reader.ReadInt64();
+                            DateTime dateTimeValue = DateTime.FromBinary(binaryValue);
+                            row[column.Name] = dateTimeValue.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+
                     }
 
                     if (EvaluateWhereCondition(row, _whereCondition))
@@ -85,6 +92,11 @@ namespace QueryProcessor.Operations
                             string value = row[column.Name].PadRight(column.Size);
                             writer.Write(value.ToCharArray());
                         }
+                        else if (column.Type == "DATETIME")
+                        {
+                            DateTime dateValue = DateTime.Parse(row[column.Name]);
+                            writer.Write(dateValue.ToBinary());
+                        }
                     }
                 }
 
@@ -104,33 +116,55 @@ namespace QueryProcessor.Operations
         {
             if (string.IsNullOrEmpty(whereCondition)) return true;
 
-            var parts = whereCondition.Split(new char[] { ' ', '=', '<', '>', '!' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2) return false;
-
-            string column = parts[0].Trim();
-            string value = parts[1].Trim();
-            string operatorValue = whereCondition.Substring(column.Length, whereCondition.Length - column.Length - value.Length).Trim();
-
-            if (row.ContainsKey(column))
+            string[] operators = { "=", "!=", ">", "<", "LIKE" };
+            foreach (var op in operators)
             {
-                switch (operatorValue)
+                int opIndex = whereCondition.IndexOf(op);
+                if (opIndex != -1)
                 {
-                    case "=":
-                        return row[column] == value;
-                    case "<":
-                        return int.Parse(row[column]) < int.Parse(value);
-                    case ">":
-                        return int.Parse(row[column]) > int.Parse(value);
-                    case "<>":
-                    case "!=":
-                        return row[column] != value;
-                    case "LIKE":
-                        return row[column].Contains(value.Replace("%", ""));
+                    string column = whereCondition.Substring(0, opIndex).Trim();
+                    string value = whereCondition.Substring(opIndex + op.Length).Trim();
+
+                    // Eliminar las comillas simples al inicio y al final si están presentes
+                    if (value.StartsWith("'") && value.EndsWith("'"))
+                    {
+                        value = value.Substring(1, value.Length - 2);
+                    }
+
+                    if (row.ContainsKey(column))
+                    {
+                        switch (op)
+                        {
+                            case "=":
+                                return row[column] == value;
+                            case "!=":
+                                return row[column] != value;
+                            case ">":
+                                if (int.TryParse(row[column], out int rowValue) && int.TryParse(value, out int conditionValue))
+                                {
+                                    return rowValue > conditionValue;
+                                }
+                                break;
+                            case "<":
+                                if (int.TryParse(row[column], out int rowVal) && int.TryParse(value, out int condVal))
+                                {
+                                    return rowVal < condVal;
+                                }
+                                break;
+                            case "LIKE":
+                                string pattern = value.Replace("%", ".*"); // Convertir '%' en un patrón regex para LIKE
+                                return System.Text.RegularExpressions.Regex.IsMatch(row[column], pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            default:
+                                return false;
+                        }
+                    }
                 }
             }
-
             return false;
         }
+
+
+
     }
 }
 

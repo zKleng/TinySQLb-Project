@@ -29,7 +29,7 @@ namespace QueryProcessor.Operations
             }
 
             List<string> rows = new List<string>();
-            using (FileStream stream = File.Open(tablePath, FileMode.Open))
+            using (FileStream stream = File.Open(tablePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (BinaryReader reader = new BinaryReader(stream))
             {
                 var columns = Store.GetInstance().GetTableDefinition(_databaseName, _selectDetails.TableName);
@@ -58,6 +58,20 @@ namespace QueryProcessor.Operations
                             row[column.Name] = intValue.ToString();
                             Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {intValue}");
                         }
+                        else if (column.Type == "DATETIME")
+                        {
+                            if (stream.Length - stream.Position < sizeof(long))
+                            {
+                                Console.WriteLine($"Error al leer DATETIME para la columna: {column.Name}");
+                                return new OperationResult(OperationStatus.Error, $"Unexpected end of file while reading DATETIME column {column.Name}.");
+                            }
+
+                            long binaryValue = reader.ReadInt64();
+                            DateTime dateTimeValue = DateTime.FromBinary(binaryValue);
+                            row[column.Name] = dateTimeValue.ToString("yyyy-MM-dd HH:mm:ss");
+                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {dateTimeValue}");
+                        }
+
                         else if (column.Type == "VARCHAR")
                         {
                             if (stream.Length - stream.Position < column.Size)
@@ -116,58 +130,81 @@ namespace QueryProcessor.Operations
         }
 
         // Método para evaluar la condición WHERE para una fila específica
+        // Método para evaluar la condición WHERE para una fila específica
         private bool EvaluateWhereCondition(Dictionary<string, string> row, string whereCondition)
         {
             if (string.IsNullOrEmpty(whereCondition)) return true;
 
-            // Dividir la condición en columna, operador y valor
-            var parts = whereCondition.Split(new char[] { ' ', '=', '<', '>', '!' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2) return false;
-
-            string column = parts[0].Trim();
-            string value = parts[1].Trim();
-            string operatorValue = whereCondition.Substring(column.Length, whereCondition.Length - column.Length - value.Length).Trim();
-
-            // Comparar según el operador
-            if (row.ContainsKey(column))
+            string[] operators = { "=", "!=", ">", "<", "LIKE" };
+            foreach (var op in operators)
             {
-                switch (operatorValue)
+                int opIndex = whereCondition.IndexOf(op);
+                if (opIndex != -1)
                 {
-                    case "=":
-                        return row[column] == value;
-                    case "<":
-                        return int.Parse(row[column]) < int.Parse(value);
-                    case ">":
-                        return int.Parse(row[column]) > int.Parse(value);
-                    case "<>":
-                    case "!=":
-                        return row[column] != value;
-                    case "LIKE":
-                        return row[column].Contains(value.Replace("%", ""));
+                    string column = whereCondition.Substring(0, opIndex).Trim();
+                    string value = whereCondition.Substring(opIndex + op.Length).Trim().Trim('\'', '\"');
+
+                    if (row.ContainsKey(column))
+                    {
+                        switch (op)
+                        {
+                            case "=":
+                                return row[column] == value;
+                            case "!=":
+                                return row[column] != value;
+                            case ">":
+                                return int.TryParse(row[column], out int rowValue) && int.TryParse(value, out int conditionValue) && rowValue > conditionValue;
+                            case "<":
+                                return int.TryParse(row[column], out int rowVal) && int.TryParse(value, out int condVal) && rowVal < condVal;
+                            case "LIKE":
+                                return row[column].Contains(value.Replace("%", ""));
+                            default:
+                                return false;
+                        }
+                    }
                 }
             }
-
             return false;
         }
-
         // Método para aplicar el ORDER BY a la lista de filas
         private List<string> ApplyOrderBy(List<string> rows, string orderByColumn, string direction)
         {
-            // Realizar ordenamiento de las filas con base en la columna especificada
+            var columns = Store.GetInstance().GetTableDefinition(_databaseName, _selectDetails.TableName);
+            var columnIndex = columns.FindIndex(c => c.Name == orderByColumn);
+
+            if (columnIndex == -1)
+            {
+                Console.WriteLine($"Error: La columna {orderByColumn} no se encontró para ORDER BY.");
+                return rows;
+            }
+
             rows.Sort((a, b) =>
             {
-                var columns = Store.GetInstance().GetTableDefinition(_databaseName, _selectDetails.TableName);
-                var columnIndex = columns.FindIndex(c => c.Name == orderByColumn);
-
                 var aValue = a.Split(',')[columnIndex].Trim();
                 var bValue = b.Split(',')[columnIndex].Trim();
 
-                int comparison = string.Compare(aValue, bValue);
+                var columnType = columns[columnIndex].Type;
+
+                int comparison = 0;
+                if (columnType == "INTEGER")
+                {
+                    comparison = int.Parse(aValue).CompareTo(int.Parse(bValue));
+                }
+                else if (columnType == "DATETIME")
+                {
+                    comparison = DateTime.Parse(aValue).CompareTo(DateTime.Parse(bValue));
+                }
+                else
+                {
+                    comparison = string.Compare(aValue, bValue);
+                }
+
                 return direction == "DESC" ? -comparison : comparison;
             });
 
             return rows;
         }
+
     }
 }
 

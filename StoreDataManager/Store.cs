@@ -9,12 +9,12 @@ namespace StoreDataManager
     {
         private static Store? instance = null;
         private static readonly object _lock = new object();
-               
+
         public static Store GetInstance()
         {
-            lock(_lock)
+            lock (_lock)
             {
-                if (instance == null) 
+                if (instance == null)
                 {
                     instance = new Store();
                 }
@@ -36,7 +36,6 @@ namespace StoreDataManager
         public Store()
         {
             this.InitializeSystemCatalog();
-            
         }
 
         private void InitializeSystemCatalog()
@@ -45,6 +44,7 @@ namespace StoreDataManager
             // exist when initializing
             Directory.CreateDirectory(SystemCatalogPath);
         }
+
         public OperationResult CreateDatabase(string databaseName)
         {
             var databasePath = $@"{DataPath}\{databaseName}";
@@ -68,6 +68,7 @@ namespace StoreDataManager
                 return new OperationResult(OperationStatus.Error, $"Failed to create database: {ex.Message}");
             }
         }
+
         public OperationResult SetDatabase(string databaseName)
         {
             var databasePath = $@"{DataPath}\{databaseName}";
@@ -102,6 +103,11 @@ namespace StoreDataManager
 
             // Crea la tabla: Solo crea un archivo vacío como indicador de la existencia de la tabla
             var tablePath = $@"{databasePath}\{tableName}.table";
+            if (File.Exists(tablePath))
+            {
+                return new OperationResult(OperationStatus.Error, "Table already exists.");
+            }
+
             using (FileStream stream = File.Open(tablePath, FileMode.Create))
             {
                 Console.WriteLine($"Archivo de la tabla {tableName} creado.");
@@ -188,6 +194,7 @@ namespace StoreDataManager
                 return columns;
             }
         }
+
         public OperationResult Insert(string databaseName, string tableName, List<object> values)
         {
             var tablePath = $@"{DataPath}\{databaseName}\{tableName}.table";
@@ -213,9 +220,24 @@ namespace StoreDataManager
                 return new OperationResult(OperationStatus.Warning, "Column count mismatch.");
             }
 
+            // Verificar si el ID ya existe (solo para columnas con nombre 'ID')
+            int idIndex = columns.FindIndex(c => c.Name.Equals("ID", StringComparison.OrdinalIgnoreCase));
+            if (idIndex >= 0)
+            {
+                int newIdValue = (int)values[idIndex];
+                if (DoesValueExist(databaseName, tableName, "ID", newIdValue.ToString()))
+                {
+                    Console.WriteLine($"Error: ID '{newIdValue}' ya existe en la tabla '{tableName}'.");
+                    return new OperationResult(OperationStatus.Error, $"Duplicate ID value '{newIdValue}' is not allowed.");
+                }
+            }
+
+            long position;
             using (FileStream stream = File.Open(tablePath, FileMode.Append))
             using (BinaryWriter writer = new BinaryWriter(stream))
             {
+                position = stream.Position; // Guardar la posición actual para los índices
+
                 for (int i = 0; i < columns.Count; i++)
                 {
                     var column = columns[i];
@@ -243,6 +265,20 @@ namespace StoreDataManager
                         writer.Write(stringValue.ToCharArray());
                         Console.WriteLine($"Wrote string value: {stringValue}");
                     }
+                    else if (column.Type == "DATETIME" && value is string)
+                    {
+                        // Intentar parsear el valor de cadena a DateTime
+                        if (DateTime.TryParse((string)value, out DateTime dateTimeValue))
+                        {
+                            writer.Write(dateTimeValue.ToBinary());
+                            Console.WriteLine($"Wrote DateTime value: {dateTimeValue}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Invalid DateTime value for column {column.Name}");
+                            return new OperationResult(OperationStatus.Error, $"Invalid DateTime value for column {column.Name}");
+                        }
+                    }
                     else
                     {
                         Console.WriteLine($"Invalid value for column {column.Name}");
@@ -251,7 +287,93 @@ namespace StoreDataManager
                 }
             }
 
+            // Actualizar los índices después de insertar la fila
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var column = columns[i];
+                var value = values[i];
+
+                if (IndexExists(databaseName, tableName, column.Name))
+                {
+                    // Actualizar el índice con la nueva posición de la fila
+                    UpdateIndex(databaseName, tableName, column.Name, value, position);
+                }
+            }
+
             return new OperationResult(OperationStatus.Success, "Row inserted successfully.");
+        }
+
+        // Método para verificar si un valor ya existe en una columna específica
+        private bool DoesValueExist(string databaseName, string tableName, string columnName, string value)
+        {
+            var tablePath = $@"{DataPath}\{databaseName}\{tableName}.table";
+            using (FileStream stream = File.Open(tablePath, FileMode.Open))
+            using (BinaryReader reader = new BinaryReader(stream))
+            {
+                var columns = GetTableDefinition(databaseName, tableName);
+                int columnIndex = columns.FindIndex(c => c.Name.Equals(columnName, StringComparison.OrdinalIgnoreCase));
+
+                if (columnIndex == -1)
+                {
+                    Console.WriteLine($"Error: Column '{columnName}' not found in table '{tableName}'.");
+                    return false;
+                }
+
+                // Leer todas las filas y verificar si el valor ya existe
+                while (stream.Position < stream.Length)
+                {
+                    for (int i = 0; i < columns.Count; i++)
+                    {
+                        var column = columns[i];
+                        if (column.Type == "INTEGER")
+                        {
+                            int intValue = reader.ReadInt32();
+                            if (i == columnIndex && intValue.ToString() == value)
+                            {
+                                return true; // El valor ya existe
+                            }
+                        }
+                        else if (column.Type == "VARCHAR")
+                        {
+                            char[] charArray = reader.ReadChars(column.Size);
+                            string columnValue = new string(charArray).Trim();
+                            if (i == columnIndex && columnValue == value)
+                            {
+                                return true; // El valor ya existe
+                            }
+                        }
+                        else if (column.Type == "DATETIME")
+                        {
+                            long binaryValue = reader.ReadInt64();
+                            DateTime dateTimeValue = DateTime.FromBinary(binaryValue);
+                            if (i == columnIndex && dateTimeValue.ToString("yyyy-MM-dd HH:mm:ss") == value)
+                            {
+                                return true; // El valor ya existe
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+
+        // Método para actualizar el índice
+        private void UpdateIndex(string databaseName, string tableName, string columnName, object value, long position)
+        {
+            var indexPath = $@"{SystemCatalogPath}\{databaseName}_{tableName}_{columnName}.index";
+
+            using (FileStream stream = File.Open(indexPath, FileMode.Append))
+            using (BinaryWriter writer = new BinaryWriter(stream))
+            {
+                // Validar si el valor es null
+                string valueToWrite = value?.ToString() ?? string.Empty;
+
+                writer.Write(valueToWrite);
+                writer.Write(position);
+                Console.WriteLine($"Índice actualizado para la columna {columnName} con valor {valueToWrite} en posición {position}.");
+            }
         }
 
         public OperationResult Select(string databaseName, string tableName)
@@ -311,6 +433,19 @@ namespace StoreDataManager
                             row.Add(columnValue);
                             Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {columnValue}");
                         }
+                        else if (column.Type == "DATETIME")
+                        {
+                            if (stream.Length - stream.Position < sizeof(long))
+                            {
+                                Console.WriteLine($"Error al leer DATETIME para la columna: {column.Name}");
+                                return new OperationResult(OperationStatus.Error, "Unexpected end of file while reading a DATETIME.");
+                            }
+
+                            long binaryValue = reader.ReadInt64();
+                            DateTime dateTimeValue = DateTime.FromBinary(binaryValue);
+                            row.Add(dateTimeValue.ToString("yyyy-MM-dd HH:mm:ss"));
+                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {dateTimeValue}");
+                        }
                     }
                     rows.Add(string.Join(", ", row));
                 }
@@ -319,12 +454,11 @@ namespace StoreDataManager
             return new OperationResult(OperationStatus.Success, string.Join("\n", rows));
         }
 
-
         public bool IndexExists(string databaseName, string tableName, string columnName)
         {
             // Verifica en el catálogo del sistema si ya existe un índice en la columna especificada
-            // Aquí puedes implementar la lógica para leer del archivo de índices y verificar si ya existe
-            return false; // Suponiendo que no existe por defecto
+            var indexPath = $@"{SystemCatalogPath}\{databaseName}_{tableName}_{columnName}.index";
+            return File.Exists(indexPath);
         }
 
         public bool HasDuplicateValues(string databaseName, string tableName, string columnName)
@@ -348,7 +482,5 @@ namespace StoreDataManager
                 Console.WriteLine($"Índice {indexName} creado en la columna {columnName} de la tabla {tableName}.");
             }
         }
-
-
     }
 }

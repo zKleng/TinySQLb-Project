@@ -139,6 +139,25 @@ namespace QueryProcessor
                 // Ejecutar la operación
                 return createIndexOperation.Execute().Status;
             }
+            else if (sentence.StartsWith("DELETE FROM"))
+            {
+                if (string.IsNullOrEmpty(currentDatabase))
+                {
+                    Console.WriteLine("Error: No database selected. Use SET DATABASE first.");
+                    return OperationStatus.Error;
+                }
+
+                // Extraer el nombre de la tabla y la condición WHERE (si existe)
+                var tableName = ExtractTableNameFromDelete(sentence);
+                var whereCondition = ExtractWhereConditionFromDelete(sentence);
+
+                // Crear la operación de Delete
+                var deleteOperation = new Delete(currentDatabase, tableName, whereCondition);
+
+                // Ejecutar la operación
+                return deleteOperation.Execute().Status;
+            }
+
             else
             {
                 throw new UnknownSQLSentenceException();
@@ -191,6 +210,24 @@ namespace QueryProcessor
 
             return selectDetails;
         }
+        // Método para extraer el nombre de la tabla de una sentencia DELETE
+        // Método para extraer el nombre de la tabla de una sentencia DELETE
+        private static string ExtractTableNameFromDelete(string sentence)
+        {
+            int fromIndex = sentence.IndexOf("FROM") + "FROM".Length;
+            int whereIndex = sentence.IndexOf("WHERE");
+            return whereIndex == -1
+                ? sentence.Substring(fromIndex).Trim()
+                : sentence.Substring(fromIndex, whereIndex - fromIndex).Trim();
+        }
+
+        // Método para extraer la condición WHERE de una sentencia DELETE (si existe)
+        private static string ExtractWhereConditionFromDelete(string sentence)
+        {
+            int whereIndex = sentence.IndexOf("WHERE");
+            return whereIndex == -1 ? string.Empty : sentence.Substring(whereIndex + "WHERE".Length).Trim();
+        }
+
         private static UpdateDetails ExtractUpdateDetails(string sentence)
         {
             var updateDetails = new UpdateDetails();
