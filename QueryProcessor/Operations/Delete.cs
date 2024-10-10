@@ -68,7 +68,12 @@ namespace QueryProcessor.Operations
                     }
 
                     // Evaluar la condición WHERE para determinar si eliminar la fila
-                    if (string.IsNullOrEmpty(_whereCondition) || !EvaluateWhereCondition(row, _whereCondition))
+                    if (string.IsNullOrEmpty(_whereCondition))
+                    {
+                        // Si no hay condición WHERE, marcar para eliminar la fila
+                        rowsDeleted = true;
+                    }
+                    else if (!EvaluateWhereCondition(row, _whereCondition))
                     {
                         // Escribir la fila en el stream temporal si no debe ser eliminada
                         foreach (var column in columns)
@@ -109,9 +114,6 @@ namespace QueryProcessor.Operations
             return new OperationResult(OperationStatus.Success, rowsDeleted ? "Rows deleted successfully." : "No rows matched the condition.");
         }
 
-        // Método para evaluar la condición WHERE para una fila específica
-        // Método para evaluar la condición WHERE para una fila específica
-        // Método para evaluar la condición WHERE para una fila específica
         // Método para evaluar la condición WHERE para una fila específica
         private bool EvaluateWhereCondition(Dictionary<string, string> row, string whereCondition)
         {
@@ -158,7 +160,7 @@ namespace QueryProcessor.Operations
             }
             return false;
         }
-
     }
+
 }
 

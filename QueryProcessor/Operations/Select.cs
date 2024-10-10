@@ -3,6 +3,7 @@ using StoreDataManager;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace QueryProcessor.Operations
 {
@@ -56,7 +57,6 @@ namespace QueryProcessor.Operations
 
                             int intValue = reader.ReadInt32();
                             row[column.Name] = intValue.ToString();
-                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {intValue}");
                         }
                         else if (column.Type == "DATETIME")
                         {
@@ -69,7 +69,6 @@ namespace QueryProcessor.Operations
                             long binaryValue = reader.ReadInt64();
                             DateTime dateTimeValue = DateTime.FromBinary(binaryValue);
                             row[column.Name] = dateTimeValue.ToString("yyyy-MM-dd HH:mm:ss");
-                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {dateTimeValue}");
                         }
 
                         else if (column.Type == "VARCHAR")
@@ -83,15 +82,19 @@ namespace QueryProcessor.Operations
                             char[] charArray = reader.ReadChars(column.Size);
                             string columnValue = new string(charArray).TrimEnd();
                             row[column.Name] = columnValue;
-                            Console.WriteLine($"Leyendo columna: {column.Name}, Valor: {columnValue}");
                         }
                     }
 
                     // Verificar si la fila cumple con la condición WHERE
-                    if (EvaluateWhereCondition(row, _selectDetails.WhereCondition))
+                    bool matchesCondition = EvaluateWhereCondition(row, _selectDetails.WhereCondition);
+                    if (matchesCondition)
                     {
                         var selectedValues = GetSelectedValues(row, _selectDetails.Columns);
-                        rows.Add(string.Join(", ", selectedValues));
+                        if (selectedValues.Count > 0)
+                        {
+                            Console.WriteLine(string.Join(", ", selectedValues));
+                            rows.Add(string.Join(", ", selectedValues));
+                        }
                     }
                 }
             }
@@ -102,7 +105,7 @@ namespace QueryProcessor.Operations
                 rows = ApplyOrderBy(rows, _selectDetails.OrderByColumn, _selectDetails.OrderByDirection);
             }
 
-            return new OperationResult(OperationStatus.Success, string.Join("\n", rows));
+            return new OperationResult(OperationStatus.Success, rows.Count > 0 ? string.Join("\n", rows) : "No matching records found.");
         }
 
 
@@ -111,7 +114,7 @@ namespace QueryProcessor.Operations
         {
             List<string> selectedValues = new List<string>();
 
-            if (columns.Count == 0) // Si columnas == "*", selecciona todos los valores
+            if (columns.Count == 0 || (columns.Count == 1 && columns[0] == "*")) // Si columnas == "*", selecciona todos los valores
             {
                 selectedValues.AddRange(row.Values);
             }
@@ -130,39 +133,86 @@ namespace QueryProcessor.Operations
         }
 
         // Método para evaluar la condición WHERE para una fila específica
-        // Método para evaluar la condición WHERE para una fila específica
         private bool EvaluateWhereCondition(Dictionary<string, string> row, string whereCondition)
         {
             if (string.IsNullOrEmpty(whereCondition)) return true;
 
-            string[] operators = { "=", "!=", ">", "<", "LIKE" };
-            foreach (var op in operators)
-            {
-                int opIndex = whereCondition.IndexOf(op);
-                if (opIndex != -1)
-                {
-                    string column = whereCondition.Substring(0, opIndex).Trim();
-                    string value = whereCondition.Substring(opIndex + op.Length).Trim().Trim('\'', '\"');
+            // Utilizar una expresión regular para dividir la condición en columna, operador y valor
+            var regex = new Regex(@"^(\w+)\s*(=|!=|>|<|LIKE)\s*(.+)$");
+            var match = regex.Match(whereCondition);
 
-                    if (row.ContainsKey(column))
+            if (!match.Success || match.Groups.Count != 4)
+            {
+                Console.WriteLine("Error: Condición WHERE no válida.");
+                return false;
+            }
+
+            string column = match.Groups[1].Value.Trim();
+            string operatorValue = match.Groups[2].Value.Trim();
+            string value = match.Groups[3].Value.Trim(new char[] { '\'', '"' });
+
+            if (row.ContainsKey(column))
+            {
+                Console.WriteLine($"Evaluando condición WHERE: Columna={column}, Operador={operatorValue}, Valor={value}, ValorFila={row[column]}");
+
+                // Verificar si el valor en la fila y el valor de la condición son ambos numéricos
+                bool isRowValueNumeric = int.TryParse(row[column], out int rowValue);
+                bool isConditionValueNumeric = int.TryParse(value, out int conditionValue);
+
+                if (isRowValueNumeric && isConditionValueNumeric)
+                {
+                    // Comparación numérica para columnas INTEGER
+                    switch (operatorValue)
                     {
-                        switch (op)
-                        {
-                            case "=":
-                                return row[column] == value;
-                            case "!=":
-                                return row[column] != value;
-                            case ">":
-                                return int.TryParse(row[column], out int rowValue) && int.TryParse(value, out int conditionValue) && rowValue > conditionValue;
-                            case "<":
-                                return int.TryParse(row[column], out int rowVal) && int.TryParse(value, out int condVal) && rowVal < condVal;
-                            case "LIKE":
-                                return row[column].Contains(value.Replace("%", ""));
-                            default:
-                                return false;
-                        }
+                        case "=":
+                            return rowValue == conditionValue;
+                        case "!=":
+                            return rowValue != conditionValue;
+                        case ">":
+                            return rowValue > conditionValue;
+                        case "<":
+                            return rowValue < conditionValue;
+                        default:
+                            return false;
                     }
                 }
+                else if (DateTime.TryParse(row[column], out DateTime rowDateValue) && DateTime.TryParse(value, out DateTime conditionDateValue))
+                {
+                    // Comparación para columnas DATETIME
+                    switch (operatorValue)
+                    {
+                        case "=":
+                            return rowDateValue == conditionDateValue;
+                        case "!=":
+                            return rowDateValue != conditionDateValue;
+                        case ">":
+                            return rowDateValue > conditionDateValue;
+                        case "<":
+                            return rowDateValue < conditionDateValue;
+                        default:
+                            return false;
+                    }
+                }
+                else
+                {
+                    // Comparación para columnas VARCHAR
+                    switch (operatorValue)
+                    {
+                        case "=":
+                            return string.Equals(row[column], value, StringComparison.OrdinalIgnoreCase);
+                        case "!=":
+                            return !string.Equals(row[column], value, StringComparison.OrdinalIgnoreCase);
+                        case "LIKE":
+                            string pattern = "^" + Regex.Escape(value).Replace("%", ".*") + "$";
+                            return Regex.IsMatch(row[column], pattern, RegexOptions.IgnoreCase);
+                        default:
+                            return false;
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Columna {column} no encontrada en la fila.");
             }
             return false;
         }
@@ -180,23 +230,38 @@ namespace QueryProcessor.Operations
 
             rows.Sort((a, b) =>
             {
-                var aValue = a.Split(',')[columnIndex].Trim();
-                var bValue = b.Split(',')[columnIndex].Trim();
+                var aValues = a.Split(new[] { ',' }, StringSplitOptions.None);
+                var bValues = b.Split(new[] { ',' }, StringSplitOptions.None);
+
+                if (columnIndex >= aValues.Length || columnIndex >= bValues.Length)
+                {
+                    Console.WriteLine("Error: Índice de columna fuera de rango durante ORDER BY.");
+                    return 0;
+                }
+
+                var aValue = aValues[columnIndex].Trim();
+                var bValue = bValues[columnIndex].Trim();
 
                 var columnType = columns[columnIndex].Type;
 
                 int comparison = 0;
                 if (columnType == "INTEGER")
                 {
-                    comparison = int.Parse(aValue).CompareTo(int.Parse(bValue));
+                    if (int.TryParse(aValue, out int aIntValue) && int.TryParse(bValue, out int bIntValue))
+                    {
+                        comparison = aIntValue.CompareTo(bIntValue);
+                    }
                 }
                 else if (columnType == "DATETIME")
                 {
-                    comparison = DateTime.Parse(aValue).CompareTo(DateTime.Parse(bValue));
+                    if (DateTime.TryParse(aValue, out DateTime aDateValue) && DateTime.TryParse(bValue, out DateTime bDateValue))
+                    {
+                        comparison = aDateValue.CompareTo(bDateValue);
+                    }
                 }
                 else
                 {
-                    comparison = string.Compare(aValue, bValue);
+                    comparison = string.Compare(aValue, bValue, StringComparison.OrdinalIgnoreCase);
                 }
 
                 return direction == "DESC" ? -comparison : comparison;
@@ -207,8 +272,6 @@ namespace QueryProcessor.Operations
 
     }
 }
-
-
 
 
 

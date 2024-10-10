@@ -92,5 +92,17 @@ function Send-SQLCommand {
     $client.Shutdown([System.Net.Sockets.SocketShutdown]::Both)
     $client.Close()
 }
+while ($true) {
+    $command = Read-Host "Ingrese un comando SQL o 'exit' para salir"
+    
+    # Si el usuario escribe 'exit', se rompe el bucle
+    if ($command -eq "exit") {
+        Write-Host "Saliendo..."
+        break
+    }
+
+    # Enviar el comando al servidor
+    Send-SQLCommand -command $command
 
 
+}
